@@ -19,7 +19,7 @@ pub fn decode_bencoded_strings(encoded_value: &str) -> serde_json::Value{
 }
 
 pub fn decode_bencoded_ints(encoded_value: &str) -> serde_json::Value{
-    let val = encoded_value.parse::<usize>();
+    let val = encoded_value.parse::<isize>();
     match val {
         Ok(v) => {
             serde_json::Value::Number(serde_json::Number::from(v))
