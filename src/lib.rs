@@ -22,7 +22,7 @@ pub fn decode_bencoded_ints(encoded_value: &str) -> serde_json::Value{
     let val = encoded_value.parse::<usize>();
     match val {
         Ok(v) => {
-            serde_json::Value::String(v.to_string())
+            serde_json::Value::Number(serde_json::Number::from(v))
         },
         Err(e) => {
             eprintln!("{}",e);
