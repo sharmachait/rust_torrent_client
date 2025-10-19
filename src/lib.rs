@@ -1,4 +1,6 @@
-pub fn decode_bencoded_strings(encoded_value: &str) -> serde_json::Value{
+use serde_json::Value;
+
+pub fn decode_bencoded_strings(encoded_value: &str) -> (serde_json::Value, &str) {
     let split = encoded_value.split_once(':');
     match split {
         Some((len,string)) => {
@@ -6,7 +8,8 @@ pub fn decode_bencoded_strings(encoded_value: &str) -> serde_json::Value{
             match length {
                 Ok(parsedLength) => {
                     let encoded = &(string[..parsedLength]);
-                    serde_json::Value::String(encoded.to_string())
+                    let left = &string[parsedLength..string.len()];
+                    (encoded.into(), left)
                 },
                 Err(e)=>{
                     println!("{}", e);
@@ -20,9 +23,10 @@ pub fn decode_bencoded_strings(encoded_value: &str) -> serde_json::Value{
 
 pub fn decode_bencoded_ints(encoded_value: &str) -> serde_json::Value{
     let val = encoded_value.parse::<isize>();
+
     match val {
         Ok(v) => {
-            serde_json::Value::Number(serde_json::Number::from(v))
+            v.into()
         },
         Err(e) => {
             eprintln!("{}",e);
