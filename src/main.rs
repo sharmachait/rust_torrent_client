@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, HashMap};
 use serde_json;
 use std::env;
 use clap::builder::TypedValueParser;
@@ -31,6 +32,25 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
             assert_eq!(rest.chars().next().unwrap(), 'e');
             (values.into(), &rest[1..])
         },
+        Some('d') =>{
+            let mut dict = serde_json::Map::new();
+            let mut rest = encoded_value.strip_prefix('d').unwrap();
+
+            while !rest.is_empty() &&  rest.chars().next().unwrap() != 'e' {
+                let (k, remainder) = decode_bencoded_value(rest);
+                let k = match k {
+                    serde_json::Value::String(x)=>x,
+                    _ => {panic!("dict keys must be string not {k:?}");}
+                };
+                let (v, remainder) = decode_bencoded_value(remainder);
+                dict.insert(k,v);
+                rest = remainder;
+            }
+
+            assert!(!rest.is_empty());
+            assert_eq!(rest.chars().next().unwrap(), 'e');
+            (serde_json::Value::Object(dict), &rest[1..])
+        },
         Some('0'..='9')=>{
             decode_bencoded_strings(encoded_value)
         }
@@ -42,6 +62,7 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+
     let command = &args[1];
 
     if command == "decode" {
