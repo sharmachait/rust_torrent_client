@@ -1,78 +1,80 @@
-use std::collections::{BTreeMap, HashMap};
 use serde_json;
-use std::env;
-use clap::builder::TypedValueParser;
-use codecrafters_bittorrent::{decode_bencoded_ints, decode_bencoded_strings};
-use serde_json::Value;
+use std::path::PathBuf;
+use anyhow::Context;
+use codecrafters_bittorrent::{torrent};
+use serde_bencode;
+use clap::{Parser, Subcommand};
+use serde::{Deserializer};
+use codecrafters_bittorrent::torrent::Keys;
 
-// Available if you need it!
-// use serde_bencode
-fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
-    match encoded_value.chars().next() {
-        Some('i') => {
-            let after_i = encoded_value.strip_prefix('i').unwrap();
-            let split : Option<(&str, &str)> = after_i.split_once('e');
-            match split {
-                None => {panic!("not encoded properly: {}", encoded_value);}
-                Some((num, rest)) => {
-                    (decode_bencoded_ints(num), rest)
-                }
-            }
-        },
-        Some('l') =>{
-            let mut rest = encoded_value.strip_prefix('l').unwrap();
-            let mut values = Vec::new();
-            while !rest.is_empty() &&  rest.chars().next().unwrap() != 'e' {
-                let (v, remainder) = decode_bencoded_value(rest);
-                values.push(v);
-                rest = remainder;
-            }
-
-            assert!(!rest.is_empty());
-            assert_eq!(rest.chars().next().unwrap(), 'e');
-            (values.into(), &rest[1..])
-        },
-        Some('d') =>{
-            let mut dict = serde_json::Map::new();
-            let mut rest = encoded_value.strip_prefix('d').unwrap();
-
-            while !rest.is_empty() &&  rest.chars().next().unwrap() != 'e' {
-                let (k, remainder) = decode_bencoded_value(rest);
-                let k = match k {
-                    serde_json::Value::String(x)=>x,
-                    _ => {panic!("dict keys must be string not {k:?}");}
-                };
-                let (v, remainder) = decode_bencoded_value(remainder);
-                dict.insert(k,v);
-                rest = remainder;
-            }
-
-            assert!(!rest.is_empty());
-            assert_eq!(rest.chars().next().unwrap(), 'e');
-            (serde_json::Value::Object(dict), &rest[1..])
-        },
-        Some('0'..='9')=>{
-            decode_bencoded_strings(encoded_value)
-        }
-        _=>{
-            panic!("not encoded properly: {}", encoded_value);
-        }
-    }
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[command(subcommand)]
+    command: Commands
 }
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Decode {
+        value: String
+    },
+    Info {
+        torrent: PathBuf
+    },
+}
 
-    let command = &args[1];
+fn main() -> anyhow::Result<()>{
+    let args = Args::parse();
 
-    if command == "decode" {
+    match args.command{
+        Commands::Decode {value}=>{
+            let v: serde_bencode::value::Value = serde_bencode::de::from_str(&value)
+                .context("Failed to decode bencode")?;
+            let json = bencode_to_json(v);
+            println!("{}", json);
+        },
+        Commands::Info {torrent}=>{
+            let mut f = std::fs::read(torrent).context("Read Torrent file")?;
+            let t:torrent::Torrent = serde_bencode::from_bytes(&f).context("Parse Torrent File")?;
 
-        let encoded_value = &args[2];
-        let decoded_value = decode_bencoded_value(encoded_value);
+            
+            println!("Tracker URL: {}", t.announce);
+            if let Keys::SingleFile {length} = t.info.key {
+                println!("Length: {:?}", length);
+            }
+        }
+    }
+    Ok(())
+}
 
-        println!("{}", decoded_value.0.to_string());
+fn bencode_to_json(value: serde_bencode::value::Value) -> serde_json::Value {
+    use serde_bencode::value::Value;
 
-    } else {
-        println!("unknown command: {}", args[1])
+    match value {
+        Value::Bytes(b) => {
+            // Try to convert to UTF-8 string, otherwise use hex
+            if let Ok(s) = String::from_utf8(b.clone()) {
+                serde_json::Value::String(s)
+            } else {
+                serde_json::Value::String(format!("{:?}", b))
+            }
+        }
+        Value::Int(i) => serde_json::Value::Number(i.into()),
+        Value::List(l) => {
+            serde_json::Value::Array(
+                l.into_iter().map(bencode_to_json).collect()
+            )
+        }
+        Value::Dict(d) => {
+            let map: serde_json::Map<String, serde_json::Value> = d
+                .into_iter()
+                .map(|(k, v)| {
+                    let key = String::from_utf8_lossy(&k).to_string();
+                    (key, bencode_to_json(v))
+                })
+                .collect();
+            serde_json::Value::Object(map)
+        }
     }
 }
